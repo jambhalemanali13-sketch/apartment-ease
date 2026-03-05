@@ -33,6 +33,7 @@ def init_database():
     conn = sqlite3.connect(DB_FILE, timeout=20.0)
     cursor = conn.cursor()
     
+    # Table 1: Residents
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS residents (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,6 +44,7 @@ def init_database():
     )
     ''')
     
+    # Table 2: Parking
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS parking_slots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,6 +53,7 @@ def init_database():
     )
     ''')
     
+    # Table 3: Maintenance
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS maintenance_payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +68,7 @@ def init_database():
     )
     ''')
     
+    # Table 4: Notices
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS notices (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,6 +78,7 @@ def init_database():
     )
     ''')
     
+    # Table 5: Complaints
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS complaints (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,6 +90,7 @@ def init_database():
     )
     ''')
     
+    # Table 6: Polls
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS polls (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,45 +108,6 @@ def init_database():
 
     conn.commit()
     conn.close()
-def migrate_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    # Check if a specific new column exists, if not, add the missing ones
-    try:
-        cursor.execute("SELECT month_year FROM maintenance_payments LIMIT 1")
-    except sqlite3.OperationalError:
-        # These are likely the columns causing your pandas read_sql to fail
-        cursor.execute("ALTER TABLE maintenance_payments ADD COLUMN resident_name TEXT")
-        cursor.execute("ALTER TABLE maintenance_payments ADD COLUMN amount_due REAL DEFAULT 5000")
-        cursor.execute("ALTER TABLE maintenance_payments ADD COLUMN month_year TEXT DEFAULT '2026-03'")
-        conn.commit()
-    conn.close()
-
-migrate_db()
-    # ✅ FIXED: Polls table with proper structure
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS polls (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        question TEXT,
-        option1 TEXT,
-        option2 TEXT,
-        option3 TEXT,
-        votes1 INTEGER DEFAULT 0,
-        votes2 INTEGER DEFAULT 0,
-        votes3 INTEGER DEFAULT 0,
-        date_posted TEXT,
-        flat_number_voted TEXT DEFAULT NULL
-    )
-    ''')
-
-    conn.commit()
-    conn.close()
-
-
-
-init_database()
-
-
 
 def load_data():
     conn = sqlite3.connect(DB_FILE, timeout=20.0)
@@ -633,6 +600,7 @@ Thank you for your payment!"""
                                color_continuous_scale='Viridis')
                     fig4.update_layout(height=300)
                     st.plotly_chart(fig4, use_container_width=True)
+
 
 
 
