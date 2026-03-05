@@ -25,7 +25,9 @@ st.markdown("""
 st.set_page_config(page_title="Society Management", layout="wide", page_icon="🏠")
 DB_FILE = 'society.db'
 
-
+import os
+if os.path.exists(DB_FILE):
+    os.remove(DB_FILE)
 
 def init_database():
     conn = sqlite3.connect(DB_FILE, timeout=20.0)
@@ -599,3 +601,4 @@ Thank you for your payment!"""
                                color_continuous_scale='Viridis')
                     fig4.update_layout(height=300)
                     st.plotly_chart(fig4, use_container_width=True)
+
