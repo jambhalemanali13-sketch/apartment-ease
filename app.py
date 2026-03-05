@@ -112,7 +112,7 @@ def load_data():
     conn = sqlite3.connect(DB_FILE, timeout=20.0)
     residents = pd.read_sql("SELECT * FROM residents", conn)
     parking = pd.read_sql("SELECT * FROM parking_slots", conn)
-    payments = pd.read_sql("SELECT * FROM maintenance_payments ORDER BY payment_date DESC", conn)
+    payments = pd.read_sql("SELECT * FROM maintenance_payments ORDER BY paid_date DESC", conn)
     notices = pd.read_sql("SELECT * FROM notices ORDER BY date_posted DESC", conn)
     complaints = pd.read_sql("SELECT * FROM complaints ORDER BY date_submitted DESC", conn)
     polls = pd.read_sql("SELECT * FROM polls ORDER BY date_posted DESC", conn)
@@ -599,3 +599,4 @@ Thank you for your payment!"""
                                color_continuous_scale='Viridis')
                     fig4.update_layout(height=300)
                     st.plotly_chart(fig4, use_container_width=True)
+
