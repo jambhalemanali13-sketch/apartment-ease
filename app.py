@@ -84,7 +84,21 @@ def init_database():
         status TEXT DEFAULT 'open'
     )
     ''')
-    
+    def migrate_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    # Check if a specific new column exists, if not, add the missing ones
+    try:
+        cursor.execute("SELECT month_year FROM maintenance_payments LIMIT 1")
+    except sqlite3.OperationalError:
+        # These are likely the columns causing your pandas read_sql to fail
+        cursor.execute("ALTER TABLE maintenance_payments ADD COLUMN resident_name TEXT")
+        cursor.execute("ALTER TABLE maintenance_payments ADD COLUMN amount_due REAL DEFAULT 5000")
+        cursor.execute("ALTER TABLE maintenance_payments ADD COLUMN month_year TEXT DEFAULT '2026-03'")
+        conn.commit()
+    conn.close()
+
+migrate_db()
     # ✅ FIXED: Polls table with proper structure
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS polls (
@@ -601,4 +615,5 @@ Thank you for your payment!"""
                                color_continuous_scale='Viridis')
                     fig4.update_layout(height=300)
                     st.plotly_chart(fig4, use_container_width=True)
+
 
