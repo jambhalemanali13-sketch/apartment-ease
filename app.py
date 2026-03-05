@@ -92,7 +92,7 @@ def init_database():
     )
     ''')
 
-    # Add sample data
+    # Sample data
     cursor.execute("SELECT COUNT(*) FROM residents")
     if cursor.fetchone()[0] == 0:
         cursor.executemany("INSERT INTO residents (name, flat_number, phone, family_members) VALUES (?, ?, ?, ?)",
@@ -118,7 +118,6 @@ def safe_read_sql(query, conn):
         return pd.DataFrame()
 
 def safe_column_access(df, columns):
-    """🔧 Safe column access - returns available columns only"""
     available_cols = [col for col in columns if col in df.columns]
     return df[available_cols] if available_cols else pd.DataFrame()
 
@@ -164,7 +163,6 @@ if not st.session_state.logged_in:
 else:
     residents, parking, payments, notices, complaints, polls = load_data()
     
-    # Member flat selection
     if st.session_state.role == "member" and not st.session_state.current_flat:
         st.info("👤 **Please select your flat to vote in polls**")
         flat_options = residents['flat_number'].tolist() if not residents.empty and 'flat_number' in residents.columns else []
@@ -196,23 +194,17 @@ else:
             parking_used = len(parking[parking['status']=='occupied']) if not parking.empty and 'status' in parking.columns else 0
             st.metric("🚗 Parking Used", parking_used)
             st.metric("⚠️ Complaints", len(complaints))
-            
-            # ✅ FIXED: Safe paid count
-            paid_count = 0
-            if not payments.empty and 'status' in payments.columns:
-                paid_count = len(payments[payments['status']=='paid'])
+            paid_count = len(payments[payments['status']=='paid']) if not payments.empty and 'status' in payments.columns else 0
             st.metric("💰 Paid", paid_count)
             
-        # ✅ FIXED: Safe recent paid display
         st.markdown("<div class='paid-members'><h4>✅ Recently Paid</h4></div>", unsafe_allow_html=True)
-        if not payments.empty and 'status' in payments.columns and 'resident_name' in payments.columns:
+        if not payments.empty and all(col in payments.columns for col in ['status', 'resident_name', 'amount', 'payment_date']):
             paid_payments = payments[payments['status']=='paid']
-            if not paid_payments.empty and 'amount' in paid_payments.columns and 'payment_date' in paid_payments.columns:
+            if not paid_payments.empty:
                 recent_paid = paid_payments[['resident_name', 'amount', 'payment_date']].head(5)
                 for _, member in recent_paid.iterrows():
                     st.success(f"✅ {member['resident_name']}")
                     st.caption(f"₹{member['amount']} | {member['payment_date']}")
-        st.info("📝 No recent payments")
     
     tabs = ["👥 Residents", "🚗 Parking", "💰 Payments", "💳 Maintenance", "📢 Notices", "⚠️ Complaints", "📊 Polls"]
     if st.session_state.role == "secretary":
@@ -222,10 +214,13 @@ else:
     
     with selected_tab[0]:
         st.subheader("📋 Residents")
-        if not residents.empty and 'name' in residents.columns:
+        if not residents.empty:
             display_cols = ['name','flat_number','phone','family_members']
             safe_cols = [col for col in display_cols if col in residents.columns]
-            st.dataframe(residents[safe_cols], height=500)
+            if safe_cols:
+                st.dataframe(residents[safe_cols], height=500)
+            else:
+                st.info("📝 No resident data available")
         else:
             st.info("📝 No residents data")
     
@@ -245,12 +240,7 @@ else:
     with selected_tab[2]:
         st.subheader("💰 All Payments")
         if not payments.empty:
-            display_cols = ['resident_name','flat_number','amount','amount_due','payment_date','status','transaction_id','month_year']
-            safe_cols = [col for col in display_cols if col in payments.columns]
-            display_payments = payments[safe_cols].copy()
-            if 'payment_date' in display_payments.columns:
-                display_payments['payment_date'] = display_payments['payment_date'].fillna('Pending')
-            st.dataframe(display_payments, height=500, use_container_width=True)
+            st.dataframe(payments, height=500, use_container_width=True)
         else:
             st.info("📝 No payments recorded")
     
@@ -273,7 +263,7 @@ else:
             img_str = base64.b64encode(buffer.getvalue()).decode()
             st.image(f"data:image/png;base64,{img_str}", caption=f"🏦 {upi_id}", width=300)
             
-            amount = st.number_input("Enter Amount (₹)", min_value=10.0, value=10.0, step=100.0, key="pay_amount_maintenance")
+            amount = st.number_input("Enter Amount (₹)", min_value=10.0, value=5000.0, step=100.0, key="pay_amount_maintenance")
             flat_number = st.text_input("Flat No (101, 102, 201 etc.):", key="flat_number_input")
             
             selected_name = None
@@ -283,27 +273,44 @@ else:
                     selected_name = resident.iloc[0]['name']
                     st.success(f"✅ **Resident Found:** {selected_name} - Flat {flat_number}")
                 else:
-                    st.error("❌ Flat number not found!")
+                    st.warning("⚠️ Flat number not found in records")
             
             if st.button("✅ Record Payment", key="record_payment_maintenance"):
                 if amount > 0 and flat_number and selected_name:
-                    conn = sqlite3.connect(DB_FILE, timeout=20.0)
-                    cursor = conn.cursor()
-                    txn_id = f"TXN{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                    date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    month_year = datetime.now().strftime('%Y-%m')
-                    
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO maintenance_payments 
-                        (flat_number, resident_name, amount, amount_due, payment_date, status, transaction_id, month_year)
-                        VALUES (?, ?, ?, 5000, ?, 'paid', ?, ?)
-                    """, (flat_number, selected_name, amount, date, txn_id, month_year))
-                    conn.commit()
-                    conn.close()
-                    
-                    st.success(f"✅ ₹{amount} Payment SUCCESSFUL for {selected_name}!")
-                    st.balloons()
-                    st.rerun()
+                    try:
+                        # ✅ FIXED: Correct parameter count (7 params for 7 ? placeholders)
+                        conn = sqlite3.connect(DB_FILE, timeout=20.0)
+                        cursor = conn.cursor()
+                        txn_id = f"TXN{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                        date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        month_year = datetime.now().strftime('%Y-%m')
+                        
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO maintenance_payments 
+                            (flat_number, resident_name, amount, amount_due, payment_date, status, transaction_id, month_year)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (flat_number, selected_name, amount, 5000.0, date, 'paid', txn_id, month_year))
+                        conn.commit()
+                        conn.close()
+                        
+                        st.success(f"✅ ₹{amount:,.0f} Payment SUCCESSFUL for {selected_name}!")
+                        st.balloons()
+                        
+                        receipt = f"""🏦 PAYMENT RECEIPT
+{'='*50}
+👤 Resident: {selected_name}
+🏠 Flat: {flat_number}
+💰 Amount: ₹{amount:,.0f}
+📅 Date: {date}
+🆔 TXN: {txn_id}
+✅ Status: PAID"""
+                        
+                        st.download_button("📄 Download Receipt", receipt, f"receipt_{txn_id}.txt", "text/plain")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Payment error: {str(e)}")
+                else:
+                    st.error("❌ Please enter valid amount and flat number")
         
         with col2:
             st.markdown("### 📄 Recent Payments")
@@ -333,8 +340,8 @@ else:
         
         if len(notices) > 0:
             for notice in notices.itertuples():
-                with st.expander(f"📋 {notice.title}"):
-                    st.write(notice.description)
+                with st.expander(f"📋 {getattr(notice, 'title', 'Notice')}"):
+                    st.write(getattr(notice, 'description', 'No description'))
         else:
             st.info("📌 No notices posted yet")
 
@@ -354,7 +361,7 @@ else:
                         conn = sqlite3.connect(DB_FILE, timeout=20.0)
                         cursor = conn.cursor()
                         date_submitted = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        cursor.execute("INSERT INTO complaints (resident_flat, subject, description, date_submitted) VALUES (?, ?, ?, ?)",
+                        cursor.execute("INSERT INTO complaints (resident_flat, subject, description, date_submitted, status) VALUES (?, ?, ?, ?, 'open')",
                                      (resident_flat, subject, description, date_submitted))
                         conn.commit()
                         conn.close()
@@ -363,9 +370,9 @@ else:
         
         if len(complaints) > 0:
             for comp in complaints.itertuples():
-                status_color = "🟢" if comp.status == "closed" else "🔴"
-                with st.expander(f"{status_color} {comp.subject} - Flat {comp.resident_flat}"):
-                    st.write(comp.description)
+                status_color = "🟢" if getattr(comp, 'status', '') == "closed" else "🔴"
+                with st.expander(f"{status_color} {getattr(comp, 'subject', 'Complaint')} - Flat {getattr(comp, 'resident_flat', 'N/A')}"):
+                    st.write(getattr(comp, 'description', 'No description'))
         else:
             st.info("✅ No complaints")
 
@@ -383,7 +390,7 @@ else:
                         conn = sqlite3.connect(DB_FILE, timeout=20.0)
                         cursor = conn.cursor()
                         date_posted = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        cursor.execute("INSERT INTO polls (question, option1, option2, option3, date_posted) VALUES (?, ?, ?, ?, ?)",
+                        cursor.execute("INSERT INTO polls (question, option1, option2, option3, date_posted, votes1, votes2, votes3) VALUES (?, ?, ?, ?, ?, 0, 0, 0)",
                                      (question, option1, option2 or "", option3 or "", date_posted))
                         conn.commit()
                         conn.close()
@@ -392,11 +399,11 @@ else:
         
         if len(polls) > 0:
             for poll in polls.itertuples():
-                st.markdown(f"**{poll.question}**")
+                st.markdown(f"**{getattr(poll, 'question', 'Poll')}**")
                 col1, col2, col3 = st.columns(3)
-                with col1: st.metric(poll.option1, poll.votes1)
-                with col2: st.metric(poll.option2 or "Option 2", poll.votes2)
-                with col3: st.metric(poll.option3 or "Option 3", poll.votes3)
+                with col1: st.metric(getattr(poll, 'option1', 'Option 1'), getattr(poll, 'votes1', 0))
+                with col2: st.metric(getattr(poll, 'option2', 'Option 2'), getattr(poll, 'votes2', 0))
+                with col3: st.metric(getattr(poll, 'option3', 'Option 3'), getattr(poll, 'votes3', 0))
                 st.divider()
         else:
             st.info("📊 No polls yet")
@@ -405,15 +412,13 @@ else:
         with selected_tab[7]:
             st.subheader("📈 Analytics Dashboard")
             col1, col2 = st.columns(2)
-            
             with col1:
                 if not residents.empty and 'family_members' in residents.columns:
-                    fig1 = px.histogram(residents, x='family_members', title="Family Size")
-                    st.plotly_chart(fig1, use_container_width=True)
-            
+                    fig = px.histogram(residents, x='family_members', title="Family Size")
+                    st.plotly_chart(fig, use_container_width=True)
             with col2:
                 if not parking.empty and 'status' in parking.columns:
                     available = len(parking[parking['status']=='available'])
                     occupied = len(parking[parking['status']=='occupied'])
-                    fig3 = px.bar(x=['Available', 'Occupied'], y=[available, occupied], title="Parking")
-                    st.plotly_chart(fig3, use_container_width=True)
+                    fig = px.bar(x=['Available', 'Occupied'], y=[available, occupied], title="Parking")
+                    st.plotly_chart(fig, use_container_width=True)
