@@ -84,6 +84,24 @@ def init_database():
         status TEXT DEFAULT 'open'
     )
     ''')
+    
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS polls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question TEXT,
+        option1 TEXT,
+        option2 TEXT,
+        option3 TEXT,
+        votes1 INTEGER DEFAULT 0,
+        votes2 INTEGER DEFAULT 0,
+        votes3 INTEGER DEFAULT 0,
+        date_posted TEXT,
+        flat_number_voted TEXT DEFAULT NULL
+    )
+    ''')
+
+    conn.commit()
+    conn.close()
 def migrate_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -615,6 +633,7 @@ Thank you for your payment!"""
                                color_continuous_scale='Viridis')
                     fig4.update_layout(height=300)
                     st.plotly_chart(fig4, use_container_width=True)
+
 
 
 
