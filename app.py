@@ -194,7 +194,7 @@ else:
             st.metric("💰 Paid", len(payments[payments['status']=='paid']))
             
         st.markdown("<div class='paid-members'><h4>✅ Recently Paid</h4></div>", unsafe_allow_html=True)
-        recent_paid = payments[payments['status']=='paid'][['resident_name', 'amount', 'payment_date']].head(5)
+       recent_paid = payments[payments['status']=='paid'][['flat_number', 'amount_paid', 'paid_date']].head(5)
         if not recent_paid.empty:
             for _, member in recent_paid.iterrows():
                 st.success(f"✅ {member['resident_name']}")
@@ -599,4 +599,5 @@ Thank you for your payment!"""
                                color_continuous_scale='Viridis')
                     fig4.update_layout(height=300)
                     st.plotly_chart(fig4, use_container_width=True)
+
 
