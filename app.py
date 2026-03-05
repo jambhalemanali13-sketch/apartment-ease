@@ -92,14 +92,14 @@ def init_database():
     )
     ''')
 
-    # Add sample data if tables are empty
+    # Add sample data
     cursor.execute("SELECT COUNT(*) FROM residents")
     if cursor.fetchone()[0] == 0:
         cursor.executemany("INSERT INTO residents (name, flat_number, phone, family_members) VALUES (?, ?, ?, ?)",
                           [('Manali Jambhale', '101', '9876543210', 4),
                            ('Rajesh Sharma', '102', '9876543211', 3),
                            ('Priya Patel', '201', '9876543212', 2)])
-    
+
     cursor.execute("SELECT COUNT(*) FROM parking_slots")
     if cursor.fetchone()[0] == 0:
         for i in range(1, 11):
@@ -111,12 +111,16 @@ def init_database():
 init_database()
 
 def safe_read_sql(query, conn):
-    """🔧 Bulletproof SQL reader"""
     try:
         df = pd.read_sql(query, conn)
         return df if not df.empty else pd.DataFrame()
     except:
         return pd.DataFrame()
+
+def safe_column_access(df, columns):
+    """🔧 Safe column access - returns available columns only"""
+    available_cols = [col for col in columns if col in df.columns]
+    return df[available_cols] if available_cols else pd.DataFrame()
 
 def load_data():
     conn = sqlite3.connect(DB_FILE, timeout=20.0)
@@ -160,16 +164,15 @@ if not st.session_state.logged_in:
 else:
     residents, parking, payments, notices, complaints, polls = load_data()
     
+    # Member flat selection
     if st.session_state.role == "member" and not st.session_state.current_flat:
         st.info("👤 **Please select your flat to vote in polls**")
-        flat_options = residents['flat_number'].tolist() if not residents.empty else []
+        flat_options = residents['flat_number'].tolist() if not residents.empty and 'flat_number' in residents.columns else []
         if flat_options:
             selected_flat = st.selectbox("Select your flat:", flat_options, key="flat_select")
             if st.button("✅ Confirm Flat", key="confirm_flat"):
                 st.session_state.current_flat = selected_flat
                 st.rerun()
-        else:
-            st.warning("No residents data available")
     
     col1, col2 = st.columns([3,1])
     with col1: 
@@ -193,18 +196,23 @@ else:
             parking_used = len(parking[parking['status']=='occupied']) if not parking.empty and 'status' in parking.columns else 0
             st.metric("🚗 Parking Used", parking_used)
             st.metric("⚠️ Complaints", len(complaints))
-            paid_count = len(payments[payments['status']=='paid']) if not payments.empty else 0
+            
+            # ✅ FIXED: Safe paid count
+            paid_count = 0
+            if not payments.empty and 'status' in payments.columns:
+                paid_count = len(payments[payments['status']=='paid'])
             st.metric("💰 Paid", paid_count)
             
+        # ✅ FIXED: Safe recent paid display
         st.markdown("<div class='paid-members'><h4>✅ Recently Paid</h4></div>", unsafe_allow_html=True)
-        if not payments.empty:
-            recent_paid = payments[payments['status']=='paid'][['resident_name', 'amount', 'payment_date']].head(5)
-            if not recent_paid.empty:
+        if not payments.empty and 'status' in payments.columns and 'resident_name' in payments.columns:
+            paid_payments = payments[payments['status']=='paid']
+            if not paid_payments.empty and 'amount' in paid_payments.columns and 'payment_date' in paid_payments.columns:
+                recent_paid = paid_payments[['resident_name', 'amount', 'payment_date']].head(5)
                 for _, member in recent_paid.iterrows():
                     st.success(f"✅ {member['resident_name']}")
                     st.caption(f"₹{member['amount']} | {member['payment_date']}")
-        else:
-            st.info("📝 No recent payments")
+        st.info("📝 No recent payments")
     
     tabs = ["👥 Residents", "🚗 Parking", "💰 Payments", "💳 Maintenance", "📢 Notices", "⚠️ Complaints", "📊 Polls"]
     if st.session_state.role == "secretary":
@@ -214,8 +222,10 @@ else:
     
     with selected_tab[0]:
         st.subheader("📋 Residents")
-        if not residents.empty:
-            st.dataframe(residents[['name','flat_number','phone','family_members']], height=500)
+        if not residents.empty and 'name' in residents.columns:
+            display_cols = ['name','flat_number','phone','family_members']
+            safe_cols = [col for col in display_cols if col in residents.columns]
+            st.dataframe(residents[safe_cols], height=500)
         else:
             st.info("📝 No residents data")
     
@@ -226,8 +236,7 @@ else:
             if not parking.empty and 'status' in parking.columns:
                 available_count = len(parking[parking['status']=='available'])
                 occupied_count = len(parking[parking['status']=='occupied'])
-                fig = px.pie(values=[available_count, occupied_count],
-                            names=['Available','Occupied'], hole=0.4)
+                fig = px.pie(values=[available_count, occupied_count], names=['Available','Occupied'], hole=0.4)
                 st.plotly_chart(fig, use_container_width=True)
         with col2: 
             if not parking.empty:
@@ -237,9 +246,10 @@ else:
         st.subheader("💰 All Payments")
         if not payments.empty:
             display_cols = ['resident_name','flat_number','amount','amount_due','payment_date','status','transaction_id','month_year']
-            available_cols = [col for col in display_cols if col in payments.columns]
-            display_payments = payments[available_cols].copy()
-            display_payments['payment_date'] = display_payments['payment_date'].fillna('Pending')
+            safe_cols = [col for col in display_cols if col in payments.columns]
+            display_payments = payments[safe_cols].copy()
+            if 'payment_date' in display_payments.columns:
+                display_payments['payment_date'] = display_payments['payment_date'].fillna('Pending')
             st.dataframe(display_payments, height=500, use_container_width=True)
         else:
             st.info("📝 No payments recorded")
@@ -267,7 +277,7 @@ else:
             flat_number = st.text_input("Flat No (101, 102, 201 etc.):", key="flat_number_input")
             
             selected_name = None
-            if flat_number and not residents.empty:
+            if flat_number and not residents.empty and 'flat_number' in residents.columns and 'name' in residents.columns:
                 resident = residents[residents['flat_number'] == flat_number]
                 if not resident.empty:
                     selected_name = resident.iloc[0]['name']
@@ -325,13 +335,11 @@ else:
             for notice in notices.itertuples():
                 with st.expander(f"📋 {notice.title}"):
                     st.write(notice.description)
-                    st.caption(f"Posted: {notice.date_posted}")
         else:
             st.info("📌 No notices posted yet")
 
     with selected_tab[5]:
         st.subheader("⚠️ Complaints")
-        # ✅ COMPLAINTS FORM - WORKING
         if st.session_state.logged_in:
             with st.expander("📝 **Submit New Complaint**"):
                 col1, col2 = st.columns(2)
@@ -353,19 +361,16 @@ else:
                         st.success("✅ Complaint submitted!")
                         st.rerun()
         
-        # ✅ SHOW COMPLAINTS - WORKING
         if len(complaints) > 0:
             for comp in complaints.itertuples():
                 status_color = "🟢" if comp.status == "closed" else "🔴"
                 with st.expander(f"{status_color} {comp.subject} - Flat {comp.resident_flat}"):
                     st.write(comp.description)
-                    st.caption(f"Status: {comp.status} | Submitted: {comp.date_submitted}")
         else:
             st.info("✅ No complaints")
 
     with selected_tab[6]:
         st.subheader("📊 Polls")
-        # ✅ POLLS CREATE - WORKING
         if st.session_state.role == "secretary":
             with st.expander("➕ Create New Poll"):
                 question = st.text_input("Poll Question", key="poll_question")
@@ -385,59 +390,17 @@ else:
                         st.success("✅ Poll created!")
                         st.rerun()
         
-        # ✅ SHOW POLLS & VOTING - WORKING
         if len(polls) > 0:
             for poll in polls.itertuples():
                 st.markdown(f"**{poll.question}**")
-                
-                # Check if user voted
-                user_has_voted = False
-                if st.session_state.role == "member" and st.session_state.current_flat:
-                    conn_check = sqlite3.connect(DB_FILE, timeout=20.0)
-                    cursor_check = conn_check.cursor()
-                    cursor_check.execute("SELECT flat_number_voted FROM polls WHERE id = ?", (poll.id,))
-                    result = cursor_check.fetchone()
-                    user_has_voted = result and result[0] == st.session_state.current_flat
-                    conn_check.close()
-                
-                col1, col2, col3 = st.columns(3)
-                
-                # Voting buttons
-                if st.session_state.role == "member" and st.session_state.current_flat and not user_has_voted:
-                    with col1:
-                        if st.button(f"🗳️ {poll.option1}", key=f"vote_{poll.id}_1"):
-                            conn = sqlite3.connect(DB_FILE, timeout=20.0)
-                            cursor = conn.cursor()
-                            cursor.execute("UPDATE polls SET votes1 = votes1 + 1, flat_number_voted = ? WHERE id = ?", 
-                                         (st.session_state.current_flat, poll.id))
-                            conn.commit()
-                            conn.close()
-                            st.rerun()
-                    
-                    if poll.option2:
-                        with col2:
-                            if st.button(f"🗳️ {poll.option2}", key=f"vote_{poll.id}_2"):
-                                conn = sqlite3.connect(DB_FILE, timeout=20.0)
-                                cursor = conn.cursor()
-                                cursor.execute("UPDATE polls SET votes2 = votes2 + 1, flat_number_voted = ? WHERE id = ?", 
-                                             (st.session_state.current_flat, poll.id))
-                                conn.commit()
-                                conn.close()
-                                st.rerun()
-                
-                # Show results
-                total_votes = poll.votes1 + poll.votes2 + poll.votes3
                 col1, col2, col3 = st.columns(3)
                 with col1: st.metric(poll.option1, poll.votes1)
                 with col2: st.metric(poll.option2 or "Option 2", poll.votes2)
                 with col3: st.metric(poll.option3 or "Option 3", poll.votes3)
-                
-                st.caption(f"📊 Total Votes: {total_votes}")
                 st.divider()
         else:
             st.info("📊 No polls yet")
 
-    # ✅ ANALYTICS TAB - WORKING
     if st.session_state.role == "secretary" and len(tabs) > 7:
         with selected_tab[7]:
             st.subheader("📈 Analytics Dashboard")
@@ -445,25 +408,12 @@ else:
             
             with col1:
                 if not residents.empty and 'family_members' in residents.columns:
-                    fig1 = px.histogram(residents, x='family_members', nbins=6,
-                                      title="👨‍👩‍👧‍👦 Family Size Distribution")
+                    fig1 = px.histogram(residents, x='family_members', title="Family Size")
                     st.plotly_chart(fig1, use_container_width=True)
-                
-                if not payments.empty and 'status' in payments.columns:
-                    status_counts = payments['status'].value_counts()
-                    fig2 = px.pie(values=status_counts.values, names=status_counts.index,
-                                title="💰 Payment Status", hole=0.4)
-                    st.plotly_chart(fig2, use_container_width=True)
             
             with col2:
                 if not parking.empty and 'status' in parking.columns:
                     available = len(parking[parking['status']=='available'])
                     occupied = len(parking[parking['status']=='occupied'])
-                    fig3 = px.bar(x=['Available', 'Occupied'], y=[available, occupied],
-                                title="🚗 Parking Utilization")
+                    fig3 = px.bar(x=['Available', 'Occupied'], y=[available, occupied], title="Parking")
                     st.plotly_chart(fig3, use_container_width=True)
-                
-                if not payments.empty:
-                    paid_payments = payments[payments['status']=='paid']
-                    total_collected = paid_payments['amount'].sum() if not paid_payments.empty else 0
-                    st.metric("💵 Total Collected", f"₹{total_collected:,.0f}")
